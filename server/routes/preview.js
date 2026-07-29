@@ -1,5 +1,5 @@
 import { Router } from "express";
-import { getScanSession } from "../services/scan-session.js";
+import { startNewPlaySession } from "../services/scan-session.js";
 
 const router = Router();
 
@@ -13,7 +13,7 @@ router.get("/", async (req, res) => {
       country_name: req.query.country,
     };
 
-    const session = await getScanSession(req, overrides);
+    const session = await startNewPlaySession(req, overrides);
     res.json(session.preview);
   } catch (error) {
     console.error("Preview failed:", error);

@@ -68,8 +68,22 @@ function mapFallbackShip(ship, index, reason = "fallback") {
   };
 }
 
+export function shuffleArray(items) {
+  const copy = [...items];
+  for (let i = copy.length - 1; i > 0; i -= 1) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [copy[i], copy[j]] = [copy[j], copy[i]];
+  }
+  return copy;
+}
+
+function getShuffledCandidatePool(candidates) {
+  const poolSize = Math.min(config.shufflePoolSize, candidates.length);
+  return shuffleArray(candidates.slice(0, poolSize));
+}
+
 function getFallbackFleet(reason) {
-  return fallbackShips
+  return shuffleArray(fallbackShips)
     .slice(0, config.shipsPerScan)
     .map((ship, index) => mapFallbackShip(ship, index, reason));
 }
@@ -213,7 +227,9 @@ export async function scanNearbyShips(location) {
       "pagination.limit": 50,
     });
 
-    const candidates = rankCandidates(radiusResult.vessels || [], location);
+    const candidates = getShuffledCandidatePool(
+      rankCandidates(radiusResult.vessels || [], location)
+    );
 
     if (candidates.length === 0) {
       console.warn(

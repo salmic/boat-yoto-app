@@ -30,6 +30,7 @@ export const config = {
   cacheDir: process.env.CACHE_DIR || path.join(__dirname, "..", ".cache"),
   corsOrigins: buildCorsOrigins(),
   sessionTtlMs: Number(process.env.SESSION_TTL_MS || 60 * 60 * 1000),
+  shufflePoolSize: Number(process.env.SHUFFLE_POOL_SIZE || 20),
 };
 
 export function getScanRadiusMeters() {

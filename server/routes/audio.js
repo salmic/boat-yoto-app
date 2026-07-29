@@ -1,7 +1,7 @@
 import { Router } from "express";
 import { hashContent, getOrCreateMp3 } from "../services/cache.js";
 import { config } from "../config.js";
-import { getScanSession, getShipFromSession } from "../services/scan-session.js";
+import { getActivePlaySession, getShipFromSession, startNewPlaySession } from "../services/scan-session.js";
 import {
   buildIntroScript,
   buildTransitionScript,
@@ -31,7 +31,7 @@ async function streamScript(req, res, script) {
 
 router.get("/intro", async (req, res) => {
   try {
-    const session = await getScanSession(req);
+    const session = await startNewPlaySession(req);
     await streamScript(req, res, buildIntroScript(session.location));
   } catch (error) {
     console.error("Intro audio failed:", error);
@@ -46,7 +46,7 @@ router.get("/ship/:index", async (req, res) => {
       return res.status(400).json({ error: "Invalid ship index" });
     }
 
-    const session = await getScanSession(req);
+    const session = await getActivePlaySession(req);
     const ship = getShipFromSession(session, shipIndex);
     if (!ship) {
       return res.status(404).json({ error: "Ship not found for this scan" });
@@ -66,7 +66,7 @@ router.get("/transition/:index", async (req, res) => {
       return res.status(400).json({ error: "Invalid transition index" });
     }
 
-    await getScanSession(req);
+    await getActivePlaySession(req);
     await streamScript(req, res, buildTransitionScript(transitionIndex));
   } catch (error) {
     console.error("Transition audio failed:", error);
@@ -76,7 +76,7 @@ router.get("/transition/:index", async (req, res) => {
 
 router.get("/outro", async (req, res) => {
   try {
-    await getScanSession(req);
+    await getActivePlaySession(req);
     await streamScript(req, res, buildOutroScript());
   } catch (error) {
     console.error("Outro audio failed:", error);
@@ -86,7 +86,7 @@ router.get("/outro", async (req, res) => {
 
 router.get("/metadata", async (req, res) => {
   try {
-    const session = await getScanSession(req);
+    const session = await getActivePlaySession(req);
     const tracks = [
       {
         id: "intro",
