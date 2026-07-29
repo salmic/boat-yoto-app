@@ -12,7 +12,11 @@ const ship = {
   yearBuilt: 2006,
 };
 
-const script = buildShipScript(ship);
+const script = buildShipScript({ ...ship, index: 1 });
+
+if (/ahoy/i.test(script)) {
+  throw new Error("Ship script should not use Ahoy");
+}
 
 if (!script.includes("Maersk Roubaix")) {
   throw new Error("Ship script missing vessel name");
@@ -35,8 +39,12 @@ if (!intro.includes("Seattle")) {
   throw new Error("Intro script missing location");
 }
 
+if (/ahoy/i.test(intro)) {
+  throw new Error("Intro script should not use Ahoy");
+}
+
 const outro = buildOutroScript();
-if (!outro.includes("Over and out")) {
+if (!outro.includes("scan")) {
   throw new Error("Outro script missing closing phrase");
 }
 

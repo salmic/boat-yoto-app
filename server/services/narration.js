@@ -19,6 +19,21 @@ const TYPE_FACTS = {
   ferry: "Ferries carry cars and people across bays, rivers, and short sea routes.",
 };
 
+const SHIP_OPENINGS = [
+  (name) =>
+    `I've picked up a vessel on the scanner — the ${name}.`,
+  (name) =>
+    `Here's another ship nearby — the ${name}.`,
+  (name) =>
+    `There's one more out there — the ${name}.`,
+];
+
+const TRANSITIONS = [
+  "Still scanning the waters. I've got another signal coming in.",
+  "The radio's busy out here. Let's listen to the next vessel.",
+  "One more blip on the scanner — let's find out who it is.",
+];
+
 function formatType(type) {
   const normalized = String(type || "ship").toLowerCase();
   if (normalized.includes("tug")) return "tugboat";
@@ -99,24 +114,18 @@ function formatPortEvent(eventType, portName) {
 export function buildIntroScript(location) {
   const place = [location.city, location.region].filter(Boolean).join(", ");
   if (place) {
-    return `Ahoy, ship spotters! Scanning the waters near ${place}. Let's listen for nearby vessels and learn all about them.`;
+    return `Let's scan the waters near ${place} and see what ships are passing by today.`;
   }
 
-  return "Ahoy, ship spotters! Scanning the waters around you. Let's listen for nearby vessels and learn all about them.";
+  return "Let's scan the waters around you and see what ships are passing by today.";
 }
 
 export function buildTransitionScript(index) {
-  const phrases = [
-    "Still listening on the radio. Here comes another ship.",
-    "The scanner is picking up another vessel nearby.",
-    "Hold on, I'm tuning in to one more ship on the horizon.",
-  ];
-
-  return phrases[(index - 1) % phrases.length];
+  return TRANSITIONS[(index - 1) % TRANSITIONS.length];
 }
 
 export function buildOutroScript() {
-  return "That's all for this ship scan. Over and out, captain!";
+  return "That's our scan for now. Happy ship spotting!";
 }
 
 export function buildShipScript(ship) {
@@ -126,9 +135,11 @@ export function buildShipScript(ship) {
   const destination = ship.destination || "her next port";
   const etaLabel = formatEtaDays(ship.etaDays);
   const funFact = buildFunFact(ship);
+  const opening =
+    SHIP_OPENINGS[((ship.index || 1) - 1) % SHIP_OPENINGS.length](ship.name);
 
   return [
-    `Ahoy! I've spotted a ship called the ${ship.name}.`,
+    opening,
     `She's a ${typeLabel} flying the flag of ${flagLabel}.`,
     `Her crew last reported ${portEvent}.`,
     `She's heading next to ${destination}, and should arrive in ${etaLabel}.`,
