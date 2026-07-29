@@ -10,7 +10,7 @@
     "build": "vite build",
     "preview": "vite preview",
     "start:prod": "node server/index.js",
-    "test:server": "node server/test-narration.js && node server/test-playlist.js && node server/test-location.js"
+    "test:server": "node server/test-narration.js && node server/test-playlist.js && node server/test-location.js && node server/test-vessels.js"
   },
   "dependencies": {
     "cors": "^2.8.5",

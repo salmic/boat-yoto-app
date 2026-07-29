@@ -1,20 +1,6 @@
 import { config, getScanRadiusMeters } from "../config.js";
 import { fallbackShips } from "../data/fallback-ships.js";
 
-const INTERESTING_TYPES = new Set([
-  "cargo",
-  "tanker",
-  "passenger",
-  "fishing",
-  "tug",
-  "container",
-  "bulk",
-  "research",
-  "ferry",
-  "yacht",
-  "sailing",
-]);
-
 function vesselApiHeaders() {
   if (!config.vesselApiKey) {
     throw new Error("VESSEL_API_KEY is not configured");
@@ -43,22 +29,27 @@ async function vesselApiFetch(pathname, params = {}) {
   return response.json();
 }
 
-function normalizeType(type) {
-  return String(type || "")
-    .toLowerCase()
-    .replace(/[^a-z]/g, "");
+function haversineKm(lat1, lon1, lat2, lon2) {
+  const toRad = (deg) => (deg * Math.PI) / 180;
+  const earthRadiusKm = 6371;
+  const dLat = toRad(lat2 - lat1);
+  const dLon = toRad(lon2 - lon1);
+  const a =
+    Math.sin(dLat / 2) ** 2 +
+    Math.cos(toRad(lat1)) * Math.cos(toRad(lat2)) * Math.sin(dLon / 2) ** 2;
+  return earthRadiusKm * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
 }
 
-function isInterestingVessel(vessel) {
-  const type = normalizeType(vessel.type || vessel.vesselType || vessel.shipType);
-  if (!type) {
-    return true;
+function isValidCandidate(vessel) {
+  const name = String(vessel.vessel_name || vessel.name || "").trim();
+  if (!vessel.mmsi || !name) {
+    return false;
   }
 
-  return [...INTERESTING_TYPES].some((candidate) => type.includes(candidate));
+  return !/^unknown$/i.test(name);
 }
 
-function mapFallbackShip(ship, index) {
+function mapFallbackShip(ship, index, reason = "fallback") {
   return {
     index: index + 1,
     mmsi: ship.mmsi,
@@ -73,11 +64,82 @@ function mapFallbackShip(ship, index) {
     etaDays: ship.etaDays,
     funFact: ship.funFact,
     isFallback: true,
+    scanReason: reason,
   };
 }
 
-async function enrichVessel(vessel, index) {
-  const mmsi = String(vessel.mmsi);
+function getFallbackFleet(reason) {
+  return fallbackShips
+    .slice(0, config.shipsPerScan)
+    .map((ship, index) => mapFallbackShip(ship, index, reason));
+}
+
+function buildBasicShipFromRadius(vessel, index, location) {
+  return {
+    index: index + 1,
+    mmsi: String(vessel.mmsi),
+    name: vessel.vessel_name || vessel.name || "Unknown vessel",
+    type: "ship",
+    flag: "unknown flag",
+    length: null,
+    yearBuilt: null,
+    lastPort: "an unknown port",
+    lastPortEvent: "visit",
+    destination: "her next port",
+    etaDays: null,
+    latitude: vessel.latitude,
+    longitude: vessel.longitude,
+    distanceKm: haversineKm(
+      location.latitude,
+      location.longitude,
+      vessel.latitude,
+      vessel.longitude
+    ),
+    isFallback: false,
+    scanReason: "live",
+  };
+}
+
+export function mergeVesselEnrichment(basicShip, { details, eta, lastPortEvent } = {}) {
+  const ship = { ...basicShip };
+
+  if (details?.vessel) {
+    const vessel = details.vessel;
+    ship.name = vessel.name || vessel.name_ais || ship.name;
+    ship.type = vessel.vessel_type || vessel.vessel_subtype || ship.type;
+    ship.flag = vessel.country || ship.flag;
+    ship.length = vessel.length ?? ship.length;
+    ship.yearBuilt = vessel.year_built ?? ship.yearBuilt;
+  }
+
+  if (eta?.vesselEta) {
+    const vesselEta = eta.vesselEta;
+    ship.destination =
+      vesselEta.destination ||
+      vesselEta.destination_port ||
+      ship.destination;
+    if (vesselEta.eta) {
+      const etaDate = new Date(vesselEta.eta);
+      if (!Number.isNaN(etaDate.getTime())) {
+        ship.etaDays = Math.max(
+          1,
+          Math.round((etaDate.getTime() - Date.now()) / (1000 * 60 * 60 * 24))
+        );
+      }
+    }
+  }
+
+  if (lastPortEvent?.portEvent) {
+    const portEvent = lastPortEvent.portEvent;
+    ship.lastPort = portEvent.port?.name || ship.lastPort;
+    ship.lastPortEvent = portEvent.event || ship.lastPortEvent;
+  }
+
+  return ship;
+}
+
+async function enrichVessel(basicShip) {
+  const mmsi = basicShip.mmsi;
   const [details, eta, lastPortEvent] = await Promise.allSettled([
     vesselApiFetch(`/v1/vessel/${mmsi}`, { "filter.idType": "mmsi" }),
     vesselApiFetch(`/v1/vessel/${mmsi}/eta`, { "filter.idType": "mmsi" }),
@@ -86,67 +148,61 @@ async function enrichVessel(vessel, index) {
     }),
   ]);
 
-  const detailData = details.status === "fulfilled" ? details.value : {};
-  const etaData = eta.status === "fulfilled" ? eta.value : {};
-  const portData =
-    lastPortEvent.status === "fulfilled" ? lastPortEvent.value : {};
+  return mergeVesselEnrichment(basicShip, {
+    details: details.status === "fulfilled" ? details.value : null,
+    eta: eta.status === "fulfilled" ? eta.value : null,
+    lastPortEvent:
+      lastPortEvent.status === "fulfilled" ? lastPortEvent.value : null,
+  });
+}
 
-  const vesselInfo = detailData.vessel || detailData || {};
-  const etaInfo = etaData.eta || etaData || {};
-  const portInfo = portData.portEvent || portData.event || portData || {};
-
-  const destination =
-    etaInfo.destination ||
-    etaInfo.destinationPort ||
-    vessel.destination ||
-    "an unknown port";
-
-  let etaDays = null;
-  if (etaInfo.eta || etaInfo.estimatedTimeOfArrival) {
-    const etaDate = new Date(etaInfo.eta || etaInfo.estimatedTimeOfArrival);
-    if (!Number.isNaN(etaDate.getTime())) {
-      etaDays = Math.max(
-        1,
-        Math.round((etaDate.getTime() - Date.now()) / (1000 * 60 * 60 * 24))
-      );
+function dedupeCandidates(candidates) {
+  const seen = new Set();
+  return candidates.filter((vessel) => {
+    if (seen.has(vessel.mmsi)) {
+      return false;
     }
+    seen.add(vessel.mmsi);
+    return true;
+  });
+}
+
+function rankCandidates(vessels, location) {
+  return dedupeCandidates(
+    vessels
+      .filter(isValidCandidate)
+      .map((vessel) => ({
+        ...vessel,
+        distanceKm: haversineKm(
+          location.latitude,
+          location.longitude,
+          vessel.latitude,
+          vessel.longitude
+        ),
+      }))
+      .sort((a, b) => a.distanceKm - b.distanceKm)
+  );
+}
+
+export function getScanSource(ships) {
+  if (ships.length === 0) {
+    return "fallback";
   }
 
-  return {
-    index: index + 1,
-    mmsi,
-    name:
-      vesselInfo.name ||
-      vessel.vessel_name ||
-      vessel.name ||
-      "Unknown vessel",
-    type:
-      vesselInfo.type ||
-      vesselInfo.vesselType ||
-      vesselInfo.shipType ||
-      "ship",
-    flag: vesselInfo.flag || vesselInfo.country || "unknown flag",
-    length: vesselInfo.length || vesselInfo.dimensions?.length || null,
-    yearBuilt: vesselInfo.yearBuilt || vesselInfo.builtYear || null,
-    lastPort:
-      portInfo.portName ||
-      portInfo.port?.name ||
-      portInfo.port ||
-      "an unknown port",
-    lastPortEvent: portInfo.eventType || portInfo.type || "visit",
-    destination,
-    etaDays,
-    latitude: vessel.latitude,
-    longitude: vessel.longitude,
-    isFallback: false,
-  };
+  const liveCount = ships.filter((ship) => !ship.isFallback).length;
+  if (liveCount === ships.length) {
+    return "live";
+  }
+  if (liveCount > 0) {
+    return "mixed";
+  }
+  return "fallback";
 }
 
 export async function scanNearbyShips(location) {
   if (!config.vesselApiKey) {
-    return fallbackShips
-      .slice(0, config.shipsPerScan)
-      .map(mapFallbackShip);
+    console.warn("VESSEL_API_KEY not set, using fallback ships");
+    return getFallbackFleet("no-api-key");
   }
 
   try {
@@ -154,51 +210,69 @@ export async function scanNearbyShips(location) {
       "filter.latitude": location.latitude,
       "filter.longitude": location.longitude,
       "filter.radius": getScanRadiusMeters(),
-      "pagination.limit": Math.max(config.shipsPerScan * 3, 10),
+      "pagination.limit": 50,
     });
 
-    const candidates = (radiusResult.vessels || [])
-      .filter((vessel) => vessel.mmsi && vessel.vessel_name)
-      .slice(0, config.shipsPerScan * 2);
+    const candidates = rankCandidates(radiusResult.vessels || [], location);
 
     if (candidates.length === 0) {
-      return fallbackShips
-        .slice(0, config.shipsPerScan)
-        .map(mapFallbackShip);
+      console.warn(
+        `No vessels found within ${config.scanRadiusNm}nm of ${location.latitude},${location.longitude}`
+      );
+      return getFallbackFleet("no-nearby-vessels");
     }
 
     const enriched = [];
-    for (const [index, vessel] of candidates.entries()) {
+
+    for (const vessel of candidates) {
       if (enriched.length >= config.shipsPerScan) {
         break;
       }
 
+      const basicShip = buildBasicShipFromRadius(vessel, enriched.length, location);
+
       try {
-        const ship = await enrichVessel(vessel, enriched.length);
-        if (isInterestingVessel(ship)) {
-          enriched.push(ship);
-        }
+        enriched.push(await enrichVessel(basicShip));
       } catch (error) {
-        console.warn(`Failed to enrich vessel ${vessel.mmsi}:`, error.message);
+        console.warn(
+          `Enrichment failed for ${vessel.mmsi}, using basic AIS data:`,
+          error.message
+        );
+        enriched.push(basicShip);
       }
     }
 
     if (enriched.length === 0) {
-      return fallbackShips
-        .slice(0, config.shipsPerScan)
-        .map(mapFallbackShip);
+      return getFallbackFleet("enrichment-failed");
     }
 
-    while (enriched.length < config.shipsPerScan) {
-      const fallback = fallbackShips[enriched.length % fallbackShips.length];
-      enriched.push(mapFallbackShip(fallback, enriched.length));
+    while (
+      enriched.length < config.shipsPerScan &&
+      enriched.length < candidates.length
+    ) {
+      const vessel = candidates[enriched.length];
+      const basicShip = buildBasicShipFromRadius(vessel, enriched.length, location);
+      try {
+        enriched.push(await enrichVessel(basicShip));
+      } catch {
+        enriched.push(basicShip);
+      }
     }
 
-    return enriched.slice(0, config.shipsPerScan);
+    if (enriched.length < config.shipsPerScan) {
+      const needed = config.shipsPerScan - enriched.length;
+      const extras = getFallbackFleet("insufficient-nearby-vessels").slice(
+        0,
+        needed
+      );
+      enriched.push(...extras);
+    }
+
+    return enriched
+      .slice(0, config.shipsPerScan)
+      .map((ship, index) => ({ ...ship, index: index + 1 }));
   } catch (error) {
     console.warn("Vessel scan failed, using fallback ships:", error.message);
-    return fallbackShips
-      .slice(0, config.shipsPerScan)
-      .map(mapFallbackShip);
+    return getFallbackFleet("api-error");
   }
 }

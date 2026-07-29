@@ -4,7 +4,7 @@ import {
   getSessionKey,
   getClientIp,
 } from "./location.js";
-import { scanNearbyShips } from "./vessels.js";
+import { scanNearbyShips, getScanSource } from "./vessels.js";
 import { buildScanPreview } from "./narration.js";
 
 const sessions = new Map();
@@ -42,7 +42,11 @@ export async function getScanSession(req, overrides = {}) {
   }
 
   const ships = await scanNearbyShips(location);
-  const preview = buildScanPreview(location, ships);
+  const preview = {
+    ...buildScanPreview(location, ships),
+    scanSource: getScanSource(ships),
+    locationIsFallback: Boolean(location.isFallback),
+  };
   const session = {
     sessionKey,
     createdAt: Date.now(),
