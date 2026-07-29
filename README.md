@@ -112,6 +112,7 @@ Set these Railway variables:
 | Variable | Example |
 |----------|---------|
 | `VESSEL_API_KEY` | your VesselAPI key |
+| `IPAPI_KEY` | optional ipapi.co key (recommended on Railway to avoid 429 rate limits) |
 | `PUBLIC_BASE_URL` | `https://your-app.up.railway.app` |
 | `CORS_ORIGINS` | `https://your-app.up.railway.app` |
 | `VITE_CLIENT_ID` | build arg / env for frontend |
