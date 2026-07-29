@@ -58,9 +58,11 @@ export default function CreateCard() {
         return;
       }
 
+      const streamBaseUrl = health?.publicBaseUrl || apiBaseUrl;
+
       const card = await createBoatScannerCard({
         accessToken: tokens.accessToken,
-        apiBaseUrl: apiBaseUrl,
+        apiBaseUrl: streamBaseUrl,
         cardId: existingCard?.cardId || null,
       });
 
@@ -151,6 +153,11 @@ export default function CreateCard() {
         {locationLabel ? (
           <p>
             Preview location: <strong>{locationLabel}</strong>
+          </p>
+        ) : null}
+        {health?.publicBaseUrl ? (
+          <p>
+            Stream URLs will use: <code>{health.publicBaseUrl}</code>
           </p>
         ) : null}
         {existingCard ? (

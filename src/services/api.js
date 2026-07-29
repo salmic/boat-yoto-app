@@ -1,11 +1,43 @@
-const apiBaseUrl = import.meta.env.VITE_API_BASE_URL || "http://localhost:3001";
+function normalizeBaseUrl(url) {
+  return url.replace(/\/$/, "");
+}
 
 export function getApiBaseUrl() {
-  return apiBaseUrl.replace(/\/$/, "");
+  const envUrl = import.meta.env.VITE_API_BASE_URL
+    ? normalizeBaseUrl(import.meta.env.VITE_API_BASE_URL)
+    : null;
+
+  if (typeof window !== "undefined" && window.location?.origin) {
+    const origin = window.location.origin;
+
+    if (!envUrl || envUrl.includes("localhost") || envUrl.includes("127.0.0.1")) {
+      return origin;
+    }
+
+    return envUrl;
+  }
+
+  return envUrl || "http://localhost:3001";
+}
+
+async function parseJsonResponse(response, label) {
+  const text = await response.text();
+
+  if (text.trimStart().startsWith("<!")) {
+    throw new Error(
+      `${label} returned HTML instead of JSON. Check that the backend URL is correct and you are logged in.`
+    );
+  }
+
+  try {
+    return JSON.parse(text);
+  } catch {
+    throw new Error(`${label} returned invalid JSON: ${text.slice(0, 200)}`);
+  }
 }
 
 export async function fetchShipPreview({ lat, lng, city, region, country } = {}) {
-  const url = new URL(`${getApiBaseUrl()}/api/preview`);
+  const url = new URL("/api/preview", getApiBaseUrl());
   if (lat && lng) {
     url.searchParams.set("lat", lat);
     url.searchParams.set("lng", lng);
@@ -20,7 +52,7 @@ export async function fetchShipPreview({ lat, lng, city, region, country } = {})
     throw new Error(`Preview failed: ${response.status} ${errorText}`);
   }
 
-  return response.json();
+  return parseJsonResponse(response, "Preview API");
 }
 
 export async function fetchHealth() {
@@ -28,5 +60,5 @@ export async function fetchHealth() {
   if (!response.ok) {
     throw new Error("API health check failed");
   }
-  return response.json();
+  return parseJsonResponse(response, "Health API");
 }

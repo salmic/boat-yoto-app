@@ -59,6 +59,14 @@ app.get("/health", (_req, res) => {
 app.use("/audio", audioRoutes);
 app.use("/api/preview", createApiCors(), previewRoutes);
 
+app.use("/audio", (_req, res) => {
+  res.status(404).json({ error: "Audio endpoint not found" });
+});
+
+app.use("/api", (_req, res) => {
+  res.status(404).json({ error: "API endpoint not found" });
+});
+
 const distPath = path.join(__dirname, "..", "dist");
 app.use(express.static(distPath));
 app.get("*", (req, res, next) => {
@@ -72,6 +80,10 @@ app.get("*", (req, res, next) => {
       next();
     }
   });
+});
+
+app.use((_req, res) => {
+  res.status(404).json({ error: "Not found" });
 });
 
 app.use((error, _req, res, _next) => {

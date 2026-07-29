@@ -172,14 +172,47 @@ export function buildBoatScannerPlaylist(baseUrl, metadataTracks = []) {
   };
 }
 
-export async function fetchTrackMetadata(apiBaseUrl) {
-  const response = await fetch(`${apiBaseUrl.replace(/\/$/, "")}/audio/metadata`);
-  if (!response.ok) {
-    return [];
+async function parseJsonResponse(response, label) {
+  const text = await response.text();
+
+  if (text.trimStart().startsWith("<!")) {
+    throw new Error(
+      `${label} returned HTML instead of JSON. Try logging out and back in.`
+    );
   }
 
-  const data = await response.json();
-  return data.tracks || [];
+  try {
+    return JSON.parse(text);
+  } catch {
+    throw new Error(`${label} returned invalid JSON: ${text.slice(0, 200)}`);
+  }
+}
+
+export async function fetchTrackMetadata(apiBaseUrl) {
+  try {
+    const response = await fetch(`${apiBaseUrl.replace(/\/$/, "")}/audio/metadata`, {
+      headers: {
+        Accept: "application/json",
+      },
+    });
+
+    if (!response.ok) {
+      console.warn(`Metadata fetch failed: ${response.status}`);
+      return [];
+    }
+
+    const contentType = response.headers.get("content-type") || "";
+    if (!contentType.includes("application/json")) {
+      console.warn("Metadata endpoint returned non-JSON, using default track durations");
+      return [];
+    }
+
+    const data = await response.json();
+    return data.tracks || [];
+  } catch (error) {
+    console.warn("Metadata fetch error, using default track durations:", error);
+    return [];
+  }
 }
 
 export async function createBoatScannerCard({
@@ -198,6 +231,7 @@ export async function createBoatScannerCard({
     method: "POST",
     headers: {
       Authorization: `Bearer ${accessToken}`,
+      Accept: "application/json",
       "Content-Type": "application/json",
     },
     body: JSON.stringify(payload),
@@ -205,25 +239,26 @@ export async function createBoatScannerCard({
 
   if (!response.ok) {
     const errorText = await response.text();
-    throw new Error(`Failed to create card: ${response.status} ${errorText}`);
+    throw new Error(`Failed to create card: ${response.status} ${errorText.slice(0, 300)}`);
   }
 
-  return response.json();
+  return parseJsonResponse(response, "Yoto content API");
 }
 
 export async function getMyCards(accessToken) {
   const response = await fetch("https://api.yotoplay.com/content/mine", {
     headers: {
       Authorization: `Bearer ${accessToken}`,
+      Accept: "application/json",
     },
   });
 
   if (!response.ok) {
     const errorText = await response.text();
-    throw new Error(`Failed to fetch cards: ${response.status} ${errorText}`);
+    throw new Error(`Failed to fetch cards: ${response.status} ${errorText.slice(0, 300)}`);
   }
 
-  const data = await response.json();
+  const data = await parseJsonResponse(response, "Yoto library API");
   return data.cards || [];
 }
 
