@@ -10,17 +10,43 @@ import previewRoutes from "./routes/preview.js";
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const app = express();
 
-app.use(
-  cors({
-    origin(origin, callback) {
-      if (!origin || config.corsOrigins.includes(origin)) {
-        callback(null, true);
-        return;
-      }
-      callback(new Error("Not allowed by CORS"));
-    },
-  })
-);
+function isAllowedCorsOrigin(origin, req) {
+  if (!origin) {
+    return true;
+  }
+
+  const normalizedOrigin = origin.replace(/\/$/, "");
+  if (config.corsOrigins.includes(normalizedOrigin)) {
+    return true;
+  }
+
+  const host = req.get("host");
+  if (host) {
+    try {
+      return new URL(origin).host === host;
+    } catch {
+      return false;
+    }
+  }
+
+  return false;
+}
+
+function createApiCors() {
+  return (req, res, next) => {
+    cors({
+      origin(origin, callback) {
+        if (isAllowedCorsOrigin(origin, req)) {
+          callback(null, true);
+          return;
+        }
+
+        console.warn(`CORS blocked origin: ${origin}`);
+        callback(null, false);
+      },
+    })(req, res, next);
+  };
+}
 
 app.get("/health", (_req, res) => {
   res.json({
@@ -31,7 +57,7 @@ app.get("/health", (_req, res) => {
 });
 
 app.use("/audio", audioRoutes);
-app.use("/api/preview", previewRoutes);
+app.use("/api/preview", createApiCors(), previewRoutes);
 
 const distPath = path.join(__dirname, "..", "dist");
 app.use(express.static(distPath));
